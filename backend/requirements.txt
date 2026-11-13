@@ -1,0 +1,15 @@
+# Install PyTorch with CUDA first, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+ultralytics>=8.3
+numpy>=1.26
+opencv-python>=4.9
+scipy
+lap
+motmetrics
+fastapi>=0.110
+uvicorn[standard]
+python-multipart
+imageio-ffmpeg        # bundled ffmpeg for H.264 export (no system ffmpeg needed)
+tensorrt-cu12>=10     # optional but ~3.5x faster inference; falls back to PyTorch FP16 if missing
+onnx
+onnxslim
