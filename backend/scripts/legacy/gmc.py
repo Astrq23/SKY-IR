@@ -39,7 +39,6 @@ class GMC:
             return tracks
 
         m, inliers = cv2.estimateAffinePartial2D(good_old, good_new)
-        print(f"Estimated GMC matrix:\n{m}")
         if m is not None:
             if self.downscale > 1:
                 m[0, 2] *= self.downscale
