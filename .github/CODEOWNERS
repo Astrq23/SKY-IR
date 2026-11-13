@@ -1,6 +1,7 @@
 # Owners are requested automatically as reviewers on PRs that touch these paths.
-# Rulesets on main and release require an approval from a code owner.
-*               @Astrq23
-/backend/       @Astrq23
-/frontend/      @Astrq23
-/.github/       @Astrq23
+# Rulesets on main and release require an approval from a code owner;
+# any one listed owner (other than the PR author) is enough.
+*               @Astrq23 @Nemesis2302
+/backend/       @Astrq23 @Nemesis2302
+/frontend/      @Astrq23 @Nemesis2302
+/.github/       @Astrq23 @Nemesis2302
