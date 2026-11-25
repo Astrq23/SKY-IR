@@ -31,7 +31,10 @@ export interface Params {
   altitude_m: number;
   pitch_deg: number;
   focal_px: number;
+  /** compass bearing the camera faces, 0 = north */
+  yaw_deg: number;
   gmc: boolean;
+  size_check: boolean;
   classes: number[] | null;
 }
 
@@ -47,6 +50,14 @@ export interface Track {
   ground_m: number | null;
   slant_m: number | null;
   speed_px: number;
+  /** [right, forward] metres from the point below the camera */
+  ground_xy: [number, number] | null;
+  speed_ms: number | null;
+  /** 0 = away from camera, 90 = right; null when stationary */
+  heading_deg: number | null;
+  vel_ms: [number, number] | null;
+  size_m: number | null;
+  size_ok: boolean;
 }
 
 export interface Timings {
@@ -67,6 +78,9 @@ export interface FrameHeader {
   motion: [number, number];
   /** camera motion prev->current frame, 2x3 row-major [a, b, tx, c, d, ty] */
   warp: [number, number, number, number, number, number];
+  /** ground polygon seen by the camera, [right, forward] metres */
+  footprint: [number, number][];
+  size_rejects: number;
   timings: Timings;
   fps: number;
   locked: number[];

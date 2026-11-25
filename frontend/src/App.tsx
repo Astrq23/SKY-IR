@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ModelInfo, type Params, type SystemInfo, type VideoInfo } from "./api";
 import { ExportPanel } from "./components/ExportPanel";
+import { GroundMap } from "./components/GroundMap";
 import { PerfPanel } from "./components/PerfPanel";
 import { SourcePanel } from "./components/SourcePanel";
 import { TrackList } from "./components/TrackList";
@@ -27,7 +28,7 @@ function loadSaved(): Saved {
   }
 }
 
-const DEFAULT_OVERLAY: Overlay = { style: "corners", labels: true, distance: true, trails: true, lockedOnly: false, inset: true };
+const DEFAULT_OVERLAY: Overlay = { style: "corners", labels: true, distance: true, speed: true, trails: true, lockedOnly: false, inset: true, map: true };
 const SPEEDS = [
   { value: 0.5, label: "½×" },
   { value: 1, label: "1×" },
@@ -189,6 +190,8 @@ export default function App() {
                 hint="Higher = easier matching (fewer lost tracks, more ID mix-ups)" onChange={(v) => setParam("match_thresh", v)} />
               <Slider label="Keep lost tracks for" value={params.track_buffer_s} min={0.5} max={15} step={0.5} unit="s" onChange={(v) => setParam("track_buffer_s", v)} />
               <Toggle label="Camera motion compensation (GMC)" checked={params.gmc} onChange={(v) => setParam("gmc", v)} />
+              <Toggle label="Reject implausible sizes" checked={params.size_check ?? true} onChange={(v) => setParam("size_check", v)} />
+              <p className="muted small">Uses altitude, pitch and focal length to get each detection's size in metres. A detection too big or too small for its class can't start a new track. A car-sized "bicycle" is relabelled as a car.</p>
               {Object.keys(names).length > 0 && (
                 <div className="class-filter">
                   {Object.entries(names).map(([k, n]) => {
@@ -213,6 +216,11 @@ export default function App() {
                 <NumberField label="Pitch" unit="°" value={params.pitch_deg} min={0} max={90} onChange={(v) => setParam("pitch_deg", v)} />
                 <NumberField label="Focal length" unit="px" value={params.focal_px} min={1} step={10} onChange={(v) => setParam("focal_px", v)} />
               </div>
+              <div className="grid3">
+                <NumberField label="Heading" unit="°" value={params.yaw_deg ?? 0} min={0} max={359} step={5}
+                  onChange={(v) => setParam("yaw_deg", ((v % 360) + 360) % 360)} />
+              </div>
+              <p className="muted small">Heading: compass direction the camera faces (0 = north, 90 = east). Used by the ground map compass and target bearings.</p>
               <p className="muted small">Auto-filled from file names like <span className="mono">60m-40_*.mov</span> (altitude 60 m, pitch 40°). Focal length in pixels: f<sub>px</sub> = f<sub>mm</sub> × width<sub>px</sub> / sensor<sub>mm</sub>.</p>
             </Section>
           </>
@@ -225,6 +233,8 @@ export default function App() {
           <div className="toggles">
             <Toggle label="Labels" checked={overlay.labels} onChange={(v) => setOverlay((o) => ({ ...o, labels: v }))} />
             <Toggle label="Distance" checked={overlay.distance} onChange={(v) => setOverlay((o) => ({ ...o, distance: v }))} />
+            <Toggle label="Speed" checked={overlay.speed} onChange={(v) => setOverlay((o) => ({ ...o, speed: v }))} />
+            <Toggle label="Ground map" checked={overlay.map} onChange={(v) => setOverlay((o) => ({ ...o, map: v }))} />
             <Toggle label="Motion trails" checked={overlay.trails} onChange={(v) => setOverlay((o) => ({ ...o, trails: v }))} />
             <Toggle label="Target zoom inset" checked={overlay.inset} onChange={(v) => setOverlay((o) => ({ ...o, inset: v }))} />
             <Toggle label="Show locked targets only" checked={overlay.lockedOnly} onChange={(v) => setOverlay((o) => ({ ...o, lockedOnly: v }))} />
@@ -263,7 +273,8 @@ export default function App() {
       </main>
 
       <aside className="panel right">
-        <TrackList header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} onClearLocks={stream.clearLocks} />
+        {overlay.map && <GroundMap yaw={params?.yaw_deg ?? 0} header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} />}
+        <TrackList yaw={params?.yaw_deg ?? 0} header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} onClearLocks={stream.clearLocks} />
         <PerfPanel header={h} history={stream.historyRef.current} meta={meta} />
         {params && <ExportPanel video={video} model={model} params={params} palette={palette} style={overlay.style} locked={h?.locked ?? []} />}
       </aside>
