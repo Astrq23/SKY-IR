@@ -263,3 +263,8 @@ tr:hover .lock:not(.on) { color: var(--muted); }
   .timeline { order: 5; flex-basis: 100%; }
   .section { padding-left: 16px; padding-right: 16px; }
 }
+
+/* ------------------------------------------------------------ ground map */
+.ground-map { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.ground-map canvas { display: block; cursor: crosshair; }
+.tracks .warn { display: inline-block; margin-left: 5px; padding: 0 4px; border-radius: 3px; font-size: 10px; font-weight: 700; color: #1a1205; background: #ffb020; }

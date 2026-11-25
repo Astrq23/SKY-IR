@@ -216,7 +216,13 @@ async def stream(ws: WebSocket):
                 continue
             stepping = state["step"]
             state["step"] = False
-            res = await loop.run_in_executor(ex, next_packet)
+            try:
+                res = await loop.run_in_executor(ex, next_packet)
+            except Exception as e:  # noqa: BLE001 - surface it instead of silently killing the stream
+                log.exception("frame processing failed")
+                state["playing"] = False
+                await ws.send_text(json.dumps({"type": "error", "message": f"frame processing failed: {e}"}))
+                continue
             if res is None:
                 state["playing"] = False
                 await ws.send_text(json.dumps({"type": "end"}))

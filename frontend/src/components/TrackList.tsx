@@ -2,6 +2,15 @@ import type { FrameHeader } from "../api";
 import { classColor, LOCK_COLOR } from "../theme";
 import { Section } from "./ui";
 
+const ARROWS = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
+
+/** Ground speed in km/h with a camera-relative heading arrow (↑ = moving away from the camera). */
+export function formatSpeed(speed: number | null, heading: number | null): string {
+  if (speed == null) return "—";
+  if (heading == null) return "0";
+  return `${ARROWS[Math.round(heading / 45) % 8]} ${(speed * 3.6).toFixed(0)}`;
+}
+
 interface Props {
   header: FrameHeader | null;
   hoverId: number | null;
@@ -28,16 +37,20 @@ export function TrackList({ header, hoverId, onHover, onToggleLock, onClearLocks
       ) : (
         <table className="tracks">
           <thead>
-            <tr><th>ID</th><th>Class</th><th>Conf</th><th>Range</th><th>Age</th><th /></tr>
+            <tr><th>ID</th><th>Class</th><th>Conf</th><th>Range</th><th title="Ground speed, km/h. Arrow: ↑ away from camera, → to the right">km/h</th><th>Age</th><th /></tr>
           </thead>
           <tbody>
             {tracks.map((t) => (
               <tr key={t.id} className={`${t.id === hoverId ? "hover" : ""} ${t.locked ? "locked" : ""} ${t.coasting ? "coasting" : ""}`}
                 onMouseEnter={() => onHover(t.id)} onMouseLeave={() => onHover(null)} onClick={() => onToggleLock(t.id)}>
                 <td className="mono">{t.id}</td>
-                <td><span className="dot" style={{ background: t.locked ? LOCK_COLOR : classColor(t.cls) }} />{t.name}</td>
+                <td title={t.size_m == null ? undefined : `Size ≈ ${t.size_m.toFixed(1)} m${t.size_ok ? "" : " (unusual for this class)"}`}>
+                  <span className="dot" style={{ background: t.locked ? LOCK_COLOR : classColor(t.cls) }} />{t.name}
+                  {!t.size_ok && <span className="warn" title="Size does not fit this class">!</span>}
+                </td>
                 <td className="mono">{t.coasting ? "—" : t.score.toFixed(2)}</td>
                 <td className="mono">{t.ground_m == null ? "∞" : `${t.ground_m.toFixed(0)} m`}</td>
+                <td className="mono">{formatSpeed(t.speed_ms, t.heading_deg)}</td>
                 <td className="mono">{t.age}</td>
                 <td><span className={`lock ${t.locked ? "on" : ""}`} title={t.locked ? "Unlock" : "Lock target"}>◎</span></td>
               </tr>

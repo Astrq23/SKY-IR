@@ -84,7 +84,7 @@ class TrackOutput:
     age: int
     locked: bool
     coasting: bool  # predicted only (no detection this frame)
-    velocity: np.ndarray
+    velocity: np.ndarray  # [vcx, vcy, vw, vh] px/frame, in current-frame coordinates (after GMC)
 
 
 class SkyTracker:
@@ -238,5 +238,5 @@ class SkyTracker:
             visible = t.state == TRACKED and t.frames_lost == 0
             coasting = t.state == LOST and t.locked and t.frames_lost <= self.cfg.fps  # show locked target ~1s predicted
             if visible or coasting:
-                out.append(TrackOutput(t.id, t.xyxy.copy(), t.score, t.cls, t.age, t.locked, coasting, t.velocity.copy()))
+                out.append(TrackOutput(t.id, t.xyxy.copy(), t.score, t.cls, t.age, t.locked, coasting, t.mean[4:8].copy()))
         return out

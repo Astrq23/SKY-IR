@@ -8,7 +8,7 @@
 Hệ thống phát hiện và theo dõi đa đối tượng (người, ô tô, xe đạp…) trên video nhiệt/hồng ngoại quay từ UAV ở độ cao 60–130 m:
 - **Phát hiện:** YOLOv8 với backbone EfficientNet-B0, chạy bằng TensorRT FP16.
 - **Theo dõi:** **SkyTrack**, thuộc họ ByteTrack/BoT-SORT, tinh chỉnh cho mục tiêu chỉ vài pixel, có bù chuyển động camera.
-- **Cự ly:** ước lượng khoảng cách mặt đất từ độ cao, góc nghiêng camera và tiêu cự.
+- **Hình học mặt đất:** từ độ cao, góc nghiêng camera và tiêu cự suy ra cự ly, vị trí trên mặt đất, vận tốc, hướng di chuyển và kích thước thực của từng mục tiêu.
 - **Giao diện:** web xử lý thời gian thực.
 
 ## Kết quả
@@ -51,14 +51,22 @@ Chưa có ground truth nên dùng chỉ số thay thế; có file GT định d�
 - Ghép bằng *buffered IoU* (C-BIoU) kết hợp khoảng cách tâm: mục tiêu 8 px dịch 9 px giữa 2 frame có IoU = 0, nhưng vẫn ghép đúng.
 - Ghép 3 tầng kiểu ByteTrack; track bị mất được nối lại trong `track_buffer` giây.
 - Lớp đối tượng được bầu theo độ tin cậy, chống nhảy lớp Person/Bicycle ở mục tiêu nhỏ.
+- Lọc theo kích thước thực: detection quá to hoặc quá nhỏ so với lớp của nó không được tạo track mới. Box "Bicycle" to cỡ ô tô được đổi nhãn thành Car.
 - Khoá mục tiêu ở bất kỳ frame nào. Mục tiêu đã khoá được giữ lâu hơn và hiển thị vị trí dự đoán khi tạm mất dấu.
+
+**Hình học mặt đất** (`distance.py`, giả định mặt đất phẳng, camera không nghiêng ngang)
+- Vị trí mỗi mục tiêu trên mặt đất (m, tính từ điểm ngay dưới UAV) và cự ly ngang.
+- Vận tốc mặt đất (km/h) và hướng di chuyển, tính từ vận tốc Kalman tại chân mục tiêu (đã bù chuyển động camera), làm mượt theo thời gian.
+- Kích thước thực ≈ cạnh lớn nhất của box × khoảng cách / tiêu cự.
+- Giới hạn: ở góc nghiêng nhỏ và cự ly trên 200 m, 1 px trên ảnh tương ứng khoảng 0.3–0.4 m trên mặt đất, nên xe đứng yên vẫn có thể hiện tốc độ khoảng 1 m/s. Tắt GMC thì tốc độ sẽ gồm cả chuyển động của UAV.
 
 **Giao diện web**
 - Stream thời gian thực qua WebSocket. Overlay vẽ trên canvas phía trình duyệt nên đổi kiểu hiển thị tức thì.
 - Bấm vào đối tượng để khoá/bỏ khoá. Ô phóng to mục tiêu nhỏ. Vệt di chuyển bám mặt đất, đã bù chuyển động camera.
 - Chỉnh ngưỡng detect/track, lọc lớp, tham số camera ngay khi video đang chạy.
 - Bảng màu nhiệt: White-hot, Black-hot, Ironbow, Arctic, Rainbow.
-- Bảng đối tượng (lớp, độ tin cậy, cự ly, tuổi track) và bảng thời gian từng giai đoạn xử lý.
+- Bản đồ mặt đất nhìn từ trên xuống: vùng camera thấy, vòng cự ly, vị trí mục tiêu và mũi tên vận tốc. Bấm vào mục tiêu để khoá.
+- Bảng đối tượng (lớp, độ tin cậy, cự ly, tốc độ kèm hướng, tuổi track; cảnh báo khi kích thước bất thường) và bảng thời gian từng giai đoạn xử lý.
 - Xuất MP4 (H.264) có overlay, `tracks.txt` định dạng MOT và metrics nếu có ground truth.
 - Tự điền độ cao/pitch từ tên file kiểu `60m-40_3.mov` (60 m, 40°).
 - Phím tắt: `Space` phát/dừng · `→` frame kế tiếp · `R` chạy lại · `Esc` bỏ khoá.
@@ -79,7 +87,7 @@ backend/
     detector.py        TensorRT runner + PyTorch fallback, tự build engine
     pipeline.py        Session: decode, detect ‖ GMC, track, cự ly
     tracker/           SkyTrack: kalman.py, matching.py, gmc.py, tracker.py
-    distance.py        Ước lượng cự ly mặt đất / đường chéo
+    distance.py        Hình học mặt đất: vị trí, cự ly, vận tốc, kích thước thực
     export.py          Xuất H.264, tracks MOT, MOTA/IDF1
     render.py          Vẽ overlay cho video xuất
     server.py          FastAPI: REST + WebSocket /api/stream
@@ -95,37 +103,34 @@ asset/                 Hình minh hoạ cho README
 run.sh                 Chạy / dev / test
 ```
 
-## Cài đặt
+## Cài đặt và chạy
+
+Yêu cầu: Python 3.10–3.12 (hoặc [uv](https://docs.astral.sh/uv/)), Node.js 18+, GPU NVIDIA (tuỳ chọn).
 
 ```bash
 git clone https://github.com/Astrq23/SKY-IR.git && cd SKY-IR
-
-# Python 3.10–3.12
-python -m venv .venv && source .venv/bin/activate
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
-
-# Frontend (Node 18+)
-cd frontend && npm install && cd ..
+# chép trọng số .pt vào models/: https://drive.google.com/drive/folders/1u7Ez44U2t3bCcb2YwpMhcN_xASYZbMUV?usp=sharing
+./run.sh
 ```
 
-Tải trọng số vào `models/`: https://drive.google.com/drive/folders/1u7Ez44U2t3bCcb2YwpMhcN_xASYZbMUV?usp=sharing
-
-Video mẫu đặt trong `models/` hoặc `data/samples/`; cũng có thể tải video lên trực tiếp trên giao diện.
-
-## Chạy
+Mở http://127.0.0.1:8000. `run.sh` tự tạo môi trường Python, cài PyTorch (bản CUDA nếu có GPU NVIDIA, ngược lại bản CPU), cài thư viện và Node packages, build giao diện rồi khởi động server.
+Những bước đã xong sẽ được bỏ qua, nên các lần chạy sau khởi động ngay.
 
 ```bash
-./run.sh            # build UI nếu cần, mở http://127.0.0.1:8000
-./run.sh dev        # backend :8000 + Vite hot-reload :5173
-./run.sh test       # unit test
+./run.sh dev            # backend :8000 + giao diện hot-reload :5173
+./run.sh test           # unit test
+./run.sh setup          # chỉ cài đặt, không chạy server
+./run.sh help           # xem tất cả tuỳ chọn
 
 HOST=0.0.0.0 ./run.sh   # cho máy khác trong mạng LAN truy cập
+PORT=9000 ./run.sh      # đổi cổng
+TORCH_INDEX=cpu ./run.sh  # ép dùng PyTorch bản CPU
 ```
 
-- Lần chạy đầu sẽ build TensorRT engine (~2–3 phút).
+- Lần chạy đầu trên GPU sẽ build TensorRT engine (~2–3 phút).
 - Engine phụ thuộc GPU và phiên bản TensorRT; khi đổi máy chỉ cần xoá file `.engine` để build lại.
-- Không có TensorRT thì hệ thống tự dùng PyTorch FP16.
+- Không có TensorRT thì hệ thống tự dùng PyTorch.
+- Video mẫu đặt trong `models/` hoặc `data/samples/`; cũng có thể tải lên trực tiếp trên giao diện.
 
 Đo đạc:
 
