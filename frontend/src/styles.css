@@ -263,3 +263,36 @@ tr:hover .lock:not(.on) { color: var(--muted); }
   .timeline { order: 5; flex-basis: 100%; }
   .section { padding-left: 16px; padding-right: 16px; }
 }
+
+/* ------------------------------------------------------------ ground map */
+.ground-map { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.ground-map canvas { display: block; cursor: crosshair; }
+.tracks .warn { display: inline-block; margin-left: 5px; padding: 0 4px; border-radius: 3px; font-size: 10px; font-weight: 700; color: #1a1205; background: #ffb020; }
+.tracks-scroll { height: 330px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.tracks { table-layout: fixed; }
+.tracks td { overflow: hidden; text-overflow: ellipsis; }
+.tracks thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-2); }
+.tracks td:last-child, .tracks th:last-child { padding-left: 2px; padding-right: 2px; text-overflow: clip; }
+.tracks td:first-child, .tracks th:first-child { padding-left: 4px; }
+.chip-btn.small-btn { padding: 1px 7px; font-size: 10.5px; }
+.ground-map { position: relative; }
+.ground-map canvas { width: 100%; height: 100%; }
+.map-tools { display: flex; gap: 4px; justify-content: flex-end; margin-bottom: -4px; }
+.map-tools .chip-btn { padding: 1px 7px; font-size: 10.5px; }
+.map-tools .chip-btn:disabled { opacity: 0.4; cursor: default; }
+.map-badge { position: absolute; left: 8px; bottom: 8px; padding: 2px 6px; border-radius: 3px; font-size: 10.5px; color: var(--text-2); background: rgba(8, 11, 15, 0.8); pointer-events: none; }
+.map-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.55); }
+.map-expanded { position: fixed; z-index: 41; inset: 5vh 6vw; display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+.map-expanded .section { flex: 1; display: flex; flex-direction: column; min-height: 0; border: 0; }
+.map-expanded .section-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.map-expanded .ground-map { flex: 1; min-height: 0; }
+.ground-map { position: relative; }
+.map-card { position: absolute; z-index: 2; padding: 5px 8px; border-radius: 5px; font-size: 10.5px; line-height: 1.5; color: var(--text-2); background: rgba(8, 11, 15, 0.9); border: 1px solid var(--line-2); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); pointer-events: none; }
+.map-card-title { color: var(--text); font-weight: 600; font-size: 11.5px; }
+.map-card .dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+.ground-map { position: relative; }
+.chip-btn.small-btn { padding: 1px 7px; font-size: 10.5px; }
+.map-hint { position: absolute; left: 8px; bottom: 32px; padding: 2px 6px; border-radius: 3px; font-size: 10.5px; color: var(--text); background: rgba(8, 11, 15, 0.85); pointer-events: none; }
+.map-nearest { position: absolute; left: 6px; right: 52px; top: 6px; padding: 2px 6px; border-radius: 3px; font-size: 10.5px; color: #ffb3b3; background: rgba(8, 11, 15, 0.85); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-btn.small-btn { padding: 1px 7px; font-size: 10.5px; white-space: nowrap; }
+.map-tools { flex-wrap: wrap; }
