@@ -20,6 +20,37 @@ const NEAREST = 3; // a locked target shows its distance to this many nearest ta
 
 type Placed = Track & { ground_xy: [number, number] };
 
+const GROUP_M = 3; // targets of the same class closer than this (chained) form a group
+
+interface Group {
+  members: Placed[];
+  cls: number;
+  centre: [number, number];
+  radius: number; // metres, centre to farthest member
+}
+
+/** Single-linkage grouping of same-class targets whose ground positions are within GROUP_M. */
+function findGroups(placed: Placed[]): Group[] {
+  const parent = placed.map((_, i) => i);
+  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  for (let i = 0; i < placed.length; i++)
+    for (let j = i + 1; j < placed.length; j++) {
+      const a = placed[i], b = placed[j];
+      if (a.cls === b.cls && Math.hypot(a.ground_xy[0] - b.ground_xy[0], a.ground_xy[1] - b.ground_xy[1]) <= GROUP_M)
+        parent[root(i)] = root(j);
+    }
+  const byRoot = new Map<number, Placed[]>();
+  placed.forEach((t, i) => byRoot.set(root(i), [...(byRoot.get(root(i)) ?? []), t]));
+  return [...byRoot.values()]
+    .filter((m) => m.length >= 2)
+    .map((members) => {
+      const cx = members.reduce((s, t) => s + t.ground_xy[0], 0) / members.length;
+      const cy = members.reduce((s, t) => s + t.ground_xy[1], 0) / members.length;
+      const radius = Math.max(...members.map((t) => Math.hypot(t.ground_xy[0] - cx, t.ground_xy[1] - cy)));
+      return { members, cls: members[0].cls, centre: [cx, cy], radius };
+    });
+}
+
 /** A ruler end: a fixed ground point, or snapped to a target so the distance follows it. */
 interface RulerPoint {
   r: number;
@@ -111,6 +142,7 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [ruler, setRuler] = useState<RulerPoint[]>([]);
+  const [grouping, setGrouping] = useState(true);
   const [northUp, setNorthUp] = useState(() => localStorage.getItem(NORTH_UP_KEY) === "1");
   useEffect(() => {
     try {
@@ -172,7 +204,8 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     return () => c.removeEventListener("wheel", onWheel);
   }, []);
 
-  const placed = (header?.tracks ?? []).filter((t): t is Track & { ground_xy: [number, number] } => t.ground_xy != null);
+  const placed = (header?.tracks ?? []).filter((t): t is Placed => t.ground_xy != null);
+  const groups = grouping ? findGroups(placed) : [];
 
   useEffect(() => {
     const c = canvasRef.current!;
@@ -297,7 +330,39 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     ctx.restore();
     ctx.textAlign = "start";
 
+    // groups: a soft ring around the members with a count badge
+    const grouped = new Set<number>();
+    for (const g of groups) {
+      g.members.forEach((t) => grouped.add(t.id));
+      const [gx, gy] = P(...g.centre);
+      const rad = Math.max(g.radius * k + 7, 10);
+      const col = classColor(g.cls);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.12;
+      ctx.beginPath();
+      ctx.arc(gx, gy, rad, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      const bx = gx + rad * 0.72, by = gy - rad * 0.72, label = String(g.members.length);
+      ctx.font = `700 10px "JetBrains Mono", ui-monospace, monospace`;
+      const bw = Math.max(14, ctx.measureText(label).width + 8);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.roundRect(bx - bw / 2, by - 7, bw, 14, 7);
+      ctx.fill();
+      ctx.fillStyle = "#0b0f14";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, bx, by + 0.5);
+      ctx.textAlign = "start";
+    }
+
     // tracks
+    ctx.font = `10px "JetBrains Mono", ui-monospace, monospace`;
     ctx.textBaseline = "middle";
     for (const t of placed) {
       const col = t.locked ? LOCK_COLOR : classColor(t.cls);
@@ -339,7 +404,8 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
         ctx.arc(x, y, 8, 0, 2 * Math.PI);
         ctx.stroke();
       }
-      if (t.locked || hovered || placed.length <= 12) {
+      // grouped members hide their ID (the badge counts them) unless hovered or locked
+      if (t.locked || hovered || (placed.length <= 12 && !grouped.has(t.id))) {
         ctx.fillStyle = "rgba(230,237,243,0.8)";
         ctx.fillText(String(t.id), x + 6, y - 6);
       }
@@ -389,7 +455,7 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
         distLabel(ctx, fmtDist(d), (scr[0][0] + scr[1][0]) / 2, (scr[0][1] + scr[1][1]) / 2 - 10, "#ffffff");
       }
     }
-  }, [header, hoverId, width, height, view, mode, phi, yaw, ruler]);
+  }, [header, hoverId, width, height, view, mode, phi, yaw, ruler, grouping]);
 
   const pick = (e: React.MouseEvent): Placed | null => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -454,6 +520,8 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
   }
   const tools = (
     <span className="map-tools">
+      <button className={`chip-btn ${grouping ? "on" : ""}`} title={`Group same-class targets within ${GROUP_M} m of each other`}
+        onClick={() => setGrouping(!grouping)}>Groups{grouping ? ` ${groups.length}` : ""}</button>
       <button className={`chip-btn ${measuring ? "on" : ""}`} title="Measure: click two points or targets on the map"
         onClick={() => { setMeasuring(!measuring); setRuler([]); }}>Measure</button>
       <button className={`chip-btn ${northUp ? "on" : ""}`} title="Switch between north up and camera direction up"
