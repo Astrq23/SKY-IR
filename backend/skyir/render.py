@@ -56,6 +56,8 @@ def draw_tracks(frame: np.ndarray, tracks, style: str = "corners", show_locked_o
         label = f"{t.id} {t.name}"
         if t.ground_m is not None:
             label += f" {t.ground_m:.0f}m"
+        if t.speed_ms is not None and t.speed_ms >= 0.4:
+            label += f" {t.speed_ms * 3.6:.0f}km/h"
         (tw, tht), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
         ly = y1 - 4 if y1 - tht - 6 > 0 else y2 + tht + 4
         cv2.rectangle(img, (x1, ly - tht - 3), (x1 + tw + 4, ly + 3), (20, 20, 20), -1)

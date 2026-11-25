@@ -7,9 +7,11 @@ export interface Overlay {
   style: "corners" | "box";
   labels: boolean;
   distance: boolean;
+  speed: boolean;
   trails: boolean;
   lockedOnly: boolean;
   inset: boolean;
+  map: boolean;
 }
 
 interface Props {
@@ -174,6 +176,7 @@ export function Viewer({ stream, overlay, hoverId, onHover }: Props) {
         if (ov.labels || hovered || t.locked) {
           let label = `${t.locked ? "◎ " : ""}${t.id} ${t.name}`;
           if (ov.distance && t.ground_m != null) label += ` ${t.ground_m.toFixed(0)}m`;
+          if (ov.speed && t.heading_deg != null && t.speed_ms != null) label += ` ${(t.speed_ms * 3.6).toFixed(0)}km/h`;
           const w = ctx.measureText(label).width + 8 * u;
           const h = 16 * u;
           const ly = y1 - h - 3 * u > 0 ? y1 - h - 3 * u : y2 + 3 * u;
