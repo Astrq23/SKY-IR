@@ -49,8 +49,9 @@ export function GroundMap({ header, hoverId, onHover, onToggleLock }: Props) {
     ctx.fillRect(0, 0, width, HEIGHT);
     if (!header) return;
 
-    // fit the footprint and every target
-    const pts: [number, number][] = [...(header.footprint ?? []), ...placed.map((t) => t.ground_xy)];
+    // fit the camera footprint only: it changes only with altitude/pitch/focal, so the scale stays
+    // put while targets appear and disappear (targets outside it are clamped to the edge below)
+    const pts: [number, number][] = header.footprint?.length ? header.footprint : placed.map((t) => t.ground_xy);
     let maxR = 10, maxF = 10;
     for (const [r, f] of pts) {
       maxR = Math.max(maxR, Math.abs(r));
@@ -104,7 +105,8 @@ export function GroundMap({ header, hoverId, onHover, onToggleLock }: Props) {
     ctx.textBaseline = "middle";
     for (const t of placed) {
       const col = t.locked ? LOCK_COLOR : classColor(t.cls);
-      const [x, y] = P(...t.ground_xy);
+      const [px, py] = P(...t.ground_xy);
+      const x = Math.min(Math.max(px, 4), width - 4), y = Math.min(Math.max(py, 4), HEIGHT - 4);
       const hovered = t.id === hoverId;
       if (t.vel_ms && t.heading_deg != null) {
         const [ex, ey] = P(t.ground_xy[0] + t.vel_ms[0] * ARROW_S, t.ground_xy[1] + t.vel_ms[1] * ARROW_S);
