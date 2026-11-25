@@ -17,23 +17,45 @@ const HEIGHT = 230;
 const ARROW_S = 3; // velocity arrows show where the target will be in this many seconds
 const STEPS = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
 
-interface Frame {
-  /** ground (right, forward) metres -> canvas css px, as drawn last */
-  P: (r: number, f: number) => [number, number];
+/**
+ * What the map shows, in rotated map coordinates (x right, y up on screen, metres from the camera):
+ * point (cx, cy) at the canvas centre, k css px per metre.
+ */
+interface View {
+  cx: number;
+  cy: number;
+  k: number;
 }
 
+type Mode = "fit" | "manual" | "follow";
+
 const NORTH_UP_KEY = "skyir.map.northUp";
+
+/** Camera-relative ground (right, forward) -> map coordinates, rotated by `phi` (radians, clockwise). */
+function rotate(phi: number, r: number, f: number): [number, number] {
+  const c = Math.cos(phi), s = Math.sin(phi);
+  return [r * c + f * s, -r * s + f * c];
+}
 
 /**
  * Bird's-eye view of the ground around the UAV: range rings, the camera footprint, a compass and
  * each track with a velocity arrow. "Camera up" puts the viewing direction at the top; "north up"
  * rotates the map by the camera's compass heading (yaw) so north is at the top.
+ * Scroll to zoom, drag to pan, Fit / Follow / Expand.
  */
 export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const frameRef = useRef<Frame>({ P: () => [-1e9, -1e9] });
-  const [width, setWidth] = useState(300);
+  const [size, setSize] = useState({ width: 300, height: HEIGHT });
+  const { width, height } = size;
+  // "fit": frame the camera footprint (stable: changes only with altitude/pitch/focal),
+  // "manual": after the user zoomed or panned, "follow": keep the locked target centred
+  const [mode, setMode] = useState<Mode>("fit");
+  const [view, setView] = useState<View>({ cx: 0, cy: 0, k: 0 });
+  const [expanded, setExpanded] = useState(false);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const [northUp, setNorthUp] = useState(() => localStorage.getItem(NORTH_UP_KEY) === "1");
   useEffect(() => {
     try {
@@ -42,11 +64,57 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
       /* storage unavailable */
     }
   }, [northUp]);
+  // map rotation: screen angle (clockwise from up) of the camera's forward axis
+  const phi = northUp ? (yaw * Math.PI) / 180 : 0;
 
   useEffect(() => {
-    const ro = new ResizeObserver(() => setWidth(wrapRef.current?.clientWidth ?? 300));
-    ro.observe(wrapRef.current!);
+    const wrap = wrapRef.current!;
+    const ro = new ResizeObserver(() => setSize({ width: wrap.clientWidth || 300, height: wrap.clientHeight || HEIGHT }));
+    ro.observe(wrap);
     return () => ro.disconnect();
+  }, []);
+
+  // fit / follow: derive the view from the data; manual: keep what the user set
+  const footprintKey = JSON.stringify(header?.footprint ?? []);
+  const locked = header?.tracks.find((t) => t.locked && t.ground_xy);
+  useEffect(() => {
+    if (mode === "manual") return;
+    // footprint + camera after rotation: changes only with altitude/pitch/focal/heading
+    const fp: [number, number][] = [[0, 0], ...(header?.footprint ?? [])];
+    let x0 = -5, x1 = 5, y0 = -5, y1 = 5;
+    for (const [r, f] of fp) {
+      const [x, y] = rotate(phi, r, f);
+      (x0 = Math.min(x0, x)), (x1 = Math.max(x1, x)), (y0 = Math.min(y0, y)), (y1 = Math.max(y1, y));
+    }
+    const pad = 16;
+    const fitK = Math.min((width - 2 * pad) / (x1 - x0), (height - 2 * pad) / (y1 - y0));
+    if (mode === "fit") setView({ cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, k: fitK });
+    else if (locked?.ground_xy) {
+      const [x, y] = rotate(phi, ...locked.ground_xy);
+      setView((v) => ({ cx: x, cy: y, k: v.k || fitK }));
+    }
+  }, [mode, footprintKey, width, height, phi, locked?.ground_xy?.[0], locked?.ground_xy?.[1]]);
+  useEffect(() => {
+    if (mode === "follow" && !locked) setMode("fit");
+  }, [mode, locked]);
+
+  // wheel zoom around the cursor; a native listener because React's onWheel is passive
+  useEffect(() => {
+    const c = canvasRef.current!;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = c.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const v = viewRef.current;
+      if (!v.k) return;
+      const W = rect.width, H = rect.height;
+      const gr = v.cx + (mx - W / 2) / v.k, gf = v.cy - (my - H / 2) / v.k; // ground point under the cursor
+      const k = Math.min(Math.max(v.k * Math.exp(-e.deltaY * 0.0015), 0.02), 100);
+      setView({ k, cx: gr - (mx - W / 2) / k, cy: gf + (my - H / 2) / k });
+      setMode((m) => (m === "follow" ? "follow" : "manual"));
+    };
+    c.addEventListener("wheel", onWheel, { passive: false });
+    return () => c.removeEventListener("wheel", onWheel);
   }, []);
 
   const placed = (header?.tracks ?? []).filter((t): t is Track & { ground_xy: [number, number] } => t.ground_xy != null);
@@ -55,38 +123,18 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     const c = canvasRef.current!;
     const dpr = window.devicePixelRatio || 1;
     c.width = Math.round(width * dpr);
-    c.height = Math.round(HEIGHT * dpr);
+    c.height = Math.round(height * dpr);
     const ctx = c.getContext("2d")!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#06080b";
-    ctx.fillRect(0, 0, width, HEIGHT);
-    if (!header) return;
+    ctx.fillRect(0, 0, width, height);
+    if (!header || !view.k) return;
 
-    // map rotation: screen angle (clockwise from up) of the camera's forward axis
-    const phi = northUp ? (yaw * Math.PI) / 180 : 0;
-    const cs = Math.cos(phi), sn = Math.sin(phi);
-    const rot = (r: number, f: number): [number, number] => [r * cs + f * sn, -r * sn + f * cs];
-
-    // fit the camera footprint (plus the camera itself) after rotation, not the targets: the
-    // footprint only changes with altitude/pitch/focal/heading, so the scale stays put while targets
-    // appear and disappear (targets outside it are clamped to the edge below)
-    const area = header.footprint?.length ? header.footprint : placed.map((t) => t.ground_xy);
-    const pts: [number, number][] = [[0, 0], ...area];
-    let x0 = -5, x1 = 5, y0 = -5, y1 = 5;
-    for (const [r, f] of pts) {
-      const [x, y] = rot(r, f);
-      x0 = Math.min(x0, x), x1 = Math.max(x1, x), y0 = Math.min(y0, y), y1 = Math.max(y1, y);
-    }
-    const pad = 14;
-    const k = Math.min((width - 2 * pad) / (x1 - x0), (HEIGHT - 2 * pad) / (y1 - y0));
-    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-    const P = (r: number, f: number): [number, number] => {
-      const [x, y] = rot(r, f);
-      return [width / 2 + (x - mx) * k, HEIGHT / 2 - (y - my) * k];
-    };
-    frameRef.current = { P };
-    const [ox, oy] = P(0, 0);
-    const maxR = Math.max(Math.abs(x0), Math.abs(x1)), maxF = Math.max(Math.abs(y0), Math.abs(y1));
+    const { k } = view;
+    const P = (r: number, f: number): [number, number] => toScreen(view, phi, width, height, r, f);
+    const [ox, oy] = P(0, 0); // camera
+    // farthest canvas corner from the camera, in metres (for the range rings)
+    const far = Math.max(...[[0, 0], [width, 0], [0, height], [width, height]].map(([x, y]) => Math.hypot(x - ox, y - oy))) / k;
 
     // footprint
     const fp = header.footprint ?? [];
@@ -102,7 +150,6 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     }
 
     // range rings
-    const far = Math.hypot(maxR, maxF);
     const step = STEPS.find((s) => far / s <= 5) ?? 2000;
     ctx.font = `10px "JetBrains Mono", ui-monospace, monospace`;
     ctx.textBaseline = "bottom";
@@ -112,7 +159,7 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
       ctx.strokeStyle = "rgba(169,180,192,0.14)";
       ctx.stroke();
       const [lx, ly] = P(0, d);
-      if (ly > 10 && ly < HEIGHT - 4 && lx > 0 && lx < width - 30) {
+      if (ly > 10 && ly < height - 4 && lx > 0 && lx < width - 30) {
         ctx.fillStyle = "rgba(169,180,192,0.55)";
         ctx.fillText(`${d} m`, lx + 3, ly - 1);
       }
@@ -168,7 +215,10 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     for (const t of placed) {
       const col = t.locked ? LOCK_COLOR : classColor(t.cls);
       const [px, py] = P(...t.ground_xy);
-      const x = Math.min(Math.max(px, 4), width - 4), y = Math.min(Math.max(py, 4), HEIGHT - 4);
+      // in Fit mode keep targets outside the footprint visible at the edge; when zoomed/panned, let
+      // them leave the view instead of piling up along the border
+      const clamp = mode === "fit";
+      const x = clamp ? Math.min(Math.max(px, 4), width - 4) : px, y = clamp ? Math.min(Math.max(py, 4), height - 4) : py;
       const hovered = t.id === hoverId;
       if (t.vel_ms && t.heading_deg != null) {
         const [ex, ey] = P(t.ground_xy[0] + t.vel_ms[0] * ARROW_S, t.ground_xy[1] + t.vel_ms[1] * ARROW_S);
@@ -207,40 +257,80 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
         ctx.fillText(String(t.id), x + 6, y - 6);
       }
     }
-  }, [header, hoverId, width, northUp, yaw]);
+  }, [header, hoverId, width, height, view, mode, phi, yaw]);
 
   const pick = (e: React.MouseEvent): Track | null => {
     const r = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const { P } = frameRef.current;
     let best: Track | null = null, bestD = 10;
     for (const t of placed) {
-      const [x, y] = P(...t.ground_xy);
+      const [x, y] = toScreen(view, phi, width, height, ...t.ground_xy);
       const d = Math.hypot(x - mx, y - my);
       if (d < bestD) (best = t), (bestD = d);
     }
     return best;
   };
 
+  // drag to pan; a press without movement is a click (lock / unlock the target under it)
+  const onDown = (e: React.MouseEvent) => {
+    drag.current = { x: e.clientX, y: e.clientY, moved: false };
+  };
+  const onMove = (e: React.MouseEvent) => {
+    const d = drag.current;
+    if (d && (d.moved || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 3)) {
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      setView((v) => ({ ...v, cx: v.cx - dx / v.k, cy: v.cy + dy / v.k }));
+      setMode("manual");
+      Object.assign(d, { x: e.clientX, y: e.clientY, moved: true });
+      return;
+    }
+    const t = pick(e);
+    if ((t?.id ?? null) !== hoverId) onHover(t?.id ?? null);
+  };
+  const onUp = (e: React.MouseEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    if (d && !d.moved) {
+      const t = pick(e);
+      if (t) onToggleLock(t.id);
+    }
+  };
+
   const moving = placed.filter((t) => t.heading_deg != null).length;
-  return (
-    <Section title="Ground map" right={
-      <span className="row gap-s">
-        <span className="muted">{placed.length} on ground · {moving} moving</span>
-        <button className={`chip-btn small-btn ${northUp ? "on" : ""}`} title="Switch between north up and camera direction up"
-          onClick={() => setNorthUp(!northUp)}>{northUp ? "N ↑" : "Cam ↑"}</button>
-      </span>
-    }>
-      <div ref={wrapRef} className="ground-map">
-        <canvas ref={canvasRef} style={{ width: "100%", height: HEIGHT }}
-          onMouseMove={(e) => { const t = pick(e); if ((t?.id ?? null) !== hoverId) onHover(t?.id ?? null); }}
-          onMouseLeave={() => onHover(null)}
-          onClick={(e) => { const t = pick(e); if (t) onToggleLock(t.id); }} />
-      </div>
-      <p className="muted small">
-        {northUp ? <>North up · camera facing {compass(yaw)}. </> : <>Camera direction up (facing {compass(yaw)}). </>}
-        The shaded area is what the camera sees. Arrows show where each target will be in {ARROW_S} s.
-      </p>
-    </Section>
+  const tools = (
+    <span className="map-tools">
+      <button className={`chip-btn ${northUp ? "on" : ""}`} title="Switch between north up and camera direction up"
+        onClick={() => setNorthUp(!northUp)}>{northUp ? "N ↑" : "Cam ↑"}</button>
+      <button className={`chip-btn ${mode === "follow" ? "on" : ""}`} disabled={!locked} title="Keep the locked target centred"
+        onClick={() => setMode(mode === "follow" ? "fit" : "follow")}>Follow</button>
+      <button className={`chip-btn ${mode === "fit" ? "on" : ""}`} title="Fit the camera footprint (or double-click the map)" onClick={() => setMode("fit")}>Fit</button>
+      <button className="chip-btn" title={expanded ? "Collapse" : "Expand"} onClick={() => setExpanded(!expanded)}>{expanded ? "✕" : "⤢"}</button>
+    </span>
   );
+  return (
+    <>
+      {expanded && <div className="map-backdrop" onClick={() => setExpanded(false)} />}
+      <div className={expanded ? "map-expanded" : undefined}>
+        <Section title="Ground map" right={<span className="muted">{placed.length} on ground · {moving} moving</span>}>
+          {tools}
+          <div ref={wrapRef} className="ground-map" style={expanded ? undefined : { height: HEIGHT }}>
+            <canvas ref={canvasRef} className={drag.current?.moved ? "panning" : undefined}
+              onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onDoubleClick={() => setMode("fit")}
+              onMouseLeave={() => { drag.current = null; onHover(null); }} />
+            {mode === "manual" && <div className="map-badge">Manual view · double-click to fit</div>}
+          </div>
+          <p className="muted small">
+            {northUp ? <>North up · camera facing {compass(yaw)}. </> : <>Camera direction up (facing {compass(yaw)}). </>}
+            The shaded area is what the camera sees. Arrows show where each target will be in {ARROW_S} s.
+            Scroll to zoom, drag to pan, click a target to lock it.
+          </p>
+        </Section>
+      </div>
+    </>
+  );
+}
+
+function toScreen(v: View, phi: number, width: number, height: number, r: number, f: number): [number, number] {
+  const [x, y] = rotate(phi, r, f);
+  return [width / 2 + (x - v.cx) * v.k, height / 2 - (y - v.cy) * v.k];
 }
