@@ -1,4 +1,5 @@
 import type { FrameHeader } from "../api";
+import { compass, toBearing } from "../compass";
 import { classColor, LOCK_COLOR } from "../theme";
 import { Section } from "./ui";
 
@@ -12,6 +13,8 @@ export function formatSpeed(speed: number | null, heading: number | null): strin
 }
 
 interface Props {
+  /** camera compass heading, to turn camera-relative headings into bearings */
+  yaw: number;
   header: FrameHeader | null;
   hoverId: number | null;
   onHover: (id: number | null) => void;
@@ -19,7 +22,7 @@ interface Props {
   onClearLocks: () => void;
 }
 
-export function TrackList({ header, hoverId, onHover, onToggleLock, onClearLocks }: Props) {
+export function TrackList({ yaw, header, hoverId, onHover, onToggleLock, onClearLocks }: Props) {
   const tracks = [...(header?.tracks ?? [])].sort((a, b) => Number(b.locked) - Number(a.locked) || a.id - b.id);
   const locked = header?.locked ?? [];
   return (
@@ -57,7 +60,7 @@ export function TrackList({ header, hoverId, onHover, onToggleLock, onClearLocks
                 </td>
                 <td className="mono">{t.coasting ? "—" : t.score.toFixed(2)}</td>
                 <td className="mono">{t.ground_m == null ? "∞" : `${t.ground_m.toFixed(0)} m`}</td>
-                <td className="mono">{formatSpeed(t.speed_ms, t.heading_deg)}</td>
+                <td className="mono" title={t.heading_deg == null ? "Stationary" : `Heading ${compass(toBearing(t.heading_deg, yaw))}`}>{formatSpeed(t.speed_ms, t.heading_deg)}</td>
                 <td className="mono">{t.age}</td>
                 <td><span className={`lock ${t.locked ? "on" : ""}`} title={t.locked ? "Unlock" : "Lock target"}>◎</span></td>
               </tr>

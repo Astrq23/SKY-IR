@@ -31,6 +31,8 @@ export interface Params {
   altitude_m: number;
   pitch_deg: number;
   focal_px: number;
+  /** compass bearing the camera faces, 0 = north */
+  yaw_deg: number;
   gmc: boolean;
   size_check: boolean;
   classes: number[] | null;

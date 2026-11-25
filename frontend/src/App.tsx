@@ -216,6 +216,11 @@ export default function App() {
                 <NumberField label="Pitch" unit="°" value={params.pitch_deg} min={0} max={90} onChange={(v) => setParam("pitch_deg", v)} />
                 <NumberField label="Focal length" unit="px" value={params.focal_px} min={1} step={10} onChange={(v) => setParam("focal_px", v)} />
               </div>
+              <div className="grid3">
+                <NumberField label="Heading" unit="°" value={params.yaw_deg ?? 0} min={0} max={359} step={5}
+                  onChange={(v) => setParam("yaw_deg", ((v % 360) + 360) % 360)} />
+              </div>
+              <p className="muted small">Heading: compass direction the camera faces (0 = north, 90 = east). Used by the ground map compass and target bearings.</p>
               <p className="muted small">Auto-filled from file names like <span className="mono">60m-40_*.mov</span> (altitude 60 m, pitch 40°). Focal length in pixels: f<sub>px</sub> = f<sub>mm</sub> × width<sub>px</sub> / sensor<sub>mm</sub>.</p>
             </Section>
           </>
@@ -268,8 +273,8 @@ export default function App() {
       </main>
 
       <aside className="panel right">
-        {overlay.map && <GroundMap header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} />}
-        <TrackList header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} onClearLocks={stream.clearLocks} />
+        {overlay.map && <GroundMap yaw={params?.yaw_deg ?? 0} header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} />}
+        <TrackList yaw={params?.yaw_deg ?? 0} header={h} hoverId={hoverId} onHover={setHoverId} onToggleLock={stream.toggleLock} onClearLocks={stream.clearLocks} />
         <PerfPanel header={h} history={stream.historyRef.current} meta={meta} />
         {params && <ExportPanel video={video} model={model} params={params} palette={palette} style={overlay.style} locked={h?.locked ?? []} />}
       </aside>

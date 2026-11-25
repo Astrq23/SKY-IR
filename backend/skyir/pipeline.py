@@ -33,6 +33,7 @@ class Params:
     altitude_m: float = 120.0
     pitch_deg: float = 35.0
     focal_px: float = 1470.0
+    yaw_deg: float = 0.0  # compass bearing the camera faces (0 = north); used for display only
     gmc: bool = True
     size_check: bool = True  # demote/relabel detections whose metric size does not fit their class
     classes: list[int] | None = None  # None = all

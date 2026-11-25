@@ -274,3 +274,4 @@ tr:hover .lock:not(.on) { color: var(--muted); }
 .tracks thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-2); }
 .tracks td:last-child, .tracks th:last-child { padding-left: 2px; padding-right: 2px; text-overflow: clip; }
 .tracks td:first-child, .tracks th:first-child { padding-left: 4px; }
+.chip-btn.small-btn { padding: 1px 7px; font-size: 10.5px; }
