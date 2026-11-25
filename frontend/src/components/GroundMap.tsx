@@ -15,7 +15,10 @@ interface Props {
 
 const HEIGHT = 230;
 const ARROW_S = 3; // velocity arrows show where the target will be in this many seconds
-const STEPS = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+const STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+
+/** Largest "nice" length (m) that is at most `max`. */
+const niceAtMost = (max: number) => [...STEPS].reverse().find((s) => s <= max) ?? STEPS[0];
 
 /**
  * What the map shows, in rotated map coordinates (x right, y up on screen, metres from the camera):
@@ -38,9 +41,9 @@ function rotate(phi: number, r: number, f: number): [number, number] {
 }
 
 /**
- * Bird's-eye view of the ground around the UAV: range rings, the camera footprint, a compass and
- * each track with a velocity arrow. "Camera up" puts the viewing direction at the top; "north up"
- * rotates the map by the camera's compass heading (yaw) so north is at the top.
+ * Bird's-eye view of the ground around the UAV: a square metre grid with a scale bar, the camera
+ * footprint, a compass and each track with a velocity arrow. "Camera up" puts the viewing direction
+ * at the top; "north up" rotates the map by the camera's compass heading (yaw) so north is at the top.
  * Scroll to zoom, drag to pan, Fit / Follow / Expand.
  */
 export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props) {
@@ -133,8 +136,6 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     const { k } = view;
     const P = (r: number, f: number): [number, number] => toScreen(view, phi, width, height, r, f);
     const [ox, oy] = P(0, 0); // camera
-    // farthest canvas corner from the camera, in metres (for the range rings)
-    const far = Math.max(...[[0, 0], [width, 0], [0, height], [width, height]].map(([x, y]) => Math.hypot(x - ox, y - oy))) / k;
 
     // footprint
     const fp = header.footprint ?? [];
@@ -149,21 +150,55 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
       ctx.stroke();
     }
 
-    // range rings
-    const step = STEPS.find((s) => far / s <= 5) ?? 2000;
+    // square metre grid, aligned with the screen (so it rotates with the map in north-up mode) and
+    // passing through the camera; ~30-60 px per cell. Lines are at map coordinates x, y = n * step.
+    const step = STEPS.find((s) => s * k >= 30) ?? STEPS[STEPS.length - 1];
+    const xMin = view.cx - width / 2 / k, xMax = view.cx + width / 2 / k;
+    const yMin = view.cy - height / 2 / k, yMax = view.cy + height / 2 / k;
+    const sx = (x: number) => Math.round(width / 2 + (x - view.cx) * k) + 0.5;
+    const sy = (y: number) => Math.round(height / 2 - (y - view.cy) * k) + 0.5;
+    ctx.lineWidth = 1;
+    for (let x = Math.ceil(xMin / step) * step; x <= xMax; x += step) {
+      ctx.strokeStyle = x === 0 ? "rgba(169,180,192,0.22)" : "rgba(169,180,192,0.09)";
+      ctx.beginPath();
+      ctx.moveTo(sx(x), 0);
+      ctx.lineTo(sx(x), height);
+      ctx.stroke();
+    }
     ctx.font = `10px "JetBrains Mono", ui-monospace, monospace`;
     ctx.textBaseline = "bottom";
-    for (let d = step; d <= far * 1.05; d += step) {
+    for (let y = Math.ceil(yMin / step) * step; y <= yMax; y += step) {
+      ctx.strokeStyle = y === 0 ? "rgba(169,180,192,0.22)" : "rgba(169,180,192,0.09)";
       ctx.beginPath();
-      ctx.arc(ox, oy, d * k, 0, 2 * Math.PI);
-      ctx.strokeStyle = "rgba(169,180,192,0.14)";
+      ctx.moveTo(0, sy(y));
+      ctx.lineTo(width, sy(y));
       ctx.stroke();
-      const [lx, ly] = P(0, d);
-      if (ly > 10 && ly < height - 4 && lx > 0 && lx < width - 30) {
-        ctx.fillStyle = "rgba(169,180,192,0.55)";
-        ctx.fillText(`${d} m`, lx + 3, ly - 1);
+      // distance ahead of the camera (camera up) or north of it (north up), on the left edge
+      if (y > 0 && sy(y) > 12 && sy(y) < height - 18) {
+        ctx.fillStyle = "rgba(169,180,192,0.6)";
+        ctx.fillText(`${y} m`, 4, sy(y) - 1);
       }
     }
+
+    // scale bar (bottom right)
+    const bar = niceAtMost(90 / k);
+    const bx1 = width - 10, bx0 = bx1 - bar * k, by = height - 9;
+    ctx.fillStyle = "rgba(8,11,15,0.7)";
+    ctx.fillRect(bx0 - 6, by - 16, bx1 - bx0 + 12, 21);
+    ctx.strokeStyle = "rgba(230,237,243,0.85)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(bx0, by - 4);
+    ctx.lineTo(bx0, by);
+    ctx.lineTo(bx1, by);
+    ctx.lineTo(bx1, by - 4);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(230,237,243,0.9)";
+    ctx.textAlign = "center";
+    ctx.fillText(`${bar} m`, (bx0 + bx1) / 2, by - 3);
+    ctx.textAlign = "start";
+    ctx.lineWidth = 1;
+
     // camera marker, pointing where the camera looks
     ctx.save();
     ctx.translate(ox, oy);
