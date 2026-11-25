@@ -32,10 +32,17 @@ export function TrackList({ header, hoverId, onHover, onToggleLock, onClearLocks
         </span>
       }
     >
+      {/* fixed-height box: rows coming and going must not push the panels below up and down */}
+      <div className="tracks-scroll">
       {tracks.length === 0 ? (
         <p className="empty">No objects yet. Click an object in the video to lock it as a target.</p>
       ) : (
         <table className="tracks">
+          <colgroup>
+            {/* widths fit the longest value ("123", "0.86", "1234 m", "↙ 120", "999") so columns never shift */}
+            <col style={{ width: 32 }} /><col /><col style={{ width: 46 }} /><col style={{ width: 54 }} />
+            <col style={{ width: 46 }} /><col style={{ width: 34 }} /><col style={{ width: 22 }} />
+          </colgroup>
           <thead>
             <tr><th>ID</th><th>Class</th><th>Conf</th><th>Range</th><th title="Ground speed, km/h. Arrow: ↑ away from camera, → to the right">km/h</th><th>Age</th><th /></tr>
           </thead>
@@ -58,6 +65,7 @@ export function TrackList({ header, hoverId, onHover, onToggleLock, onClearLocks
           </tbody>
         </table>
       )}
+      </div>
     </Section>
   );
 }

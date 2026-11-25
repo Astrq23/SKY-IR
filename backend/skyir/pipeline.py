@@ -134,6 +134,9 @@ class FrameReader:
 # class confusions the size gate may fix: a "bicycle" the size of a car is almost always a car
 RELABEL_IF_TOO_LARGE = {"bicycle": "car"}
 STATIONARY_MS = 0.4  # below this the heading is noise
+# Box-edge jitter grows with box size: a 100 px parked car wobbles ~0.5 px/frame. A target only
+# counts as moving when its foot point travels more than this fraction of its box size per second.
+STATIONARY_BOX_FRAC = 0.15
 SPEED_TAU_S = 0.6  # time constant of the speed smoothing
 MAX_MAP_RANGE_M = 1500.0
 SIZE_SLACK_PX = 4.0  # thermal halo / box padding allowance
@@ -229,6 +232,8 @@ class Session:
         size = np.maximum(box[:, 2] - box[:, 0], box[:, 3] - box[:, 1]) * mpp
         vr, vf = self.geo.ground_velocity(fu, fv, vel[:, 0], vel[:, 1] + vel[:, 3] / 2, p.altitude_m, p.pitch_deg, self.fps)
         a = 1.0 - np.exp(-1.0 / (self.fps * SPEED_TAU_S))
+        box_px = np.maximum(box[:, 2] - box[:, 0], box[:, 3] - box[:, 1])
+        px_s = np.hypot(vel[:, 0], vel[:, 1] + vel[:, 3] / 2) * self.fps  # foot-point image speed
         alive, tracks = {}, []
         for i, o in enumerate(outs):
             name = self.names.get(o.cls, str(o.cls))
@@ -237,13 +242,13 @@ class Session:
                 g = round(float(np.hypot(right[i], fwd[i])), 1)
                 sz = round(float(size[i]), 2)
                 if np.isfinite(vr[i]):
-                    raw = np.array([vr[i], vf[i]])
+                    raw = np.array([vr[i], vf[i], px_s[i]])
                     prev = self._vel.get(o.id)
                     sm = raw if prev is None else prev + a * (raw - prev)
                     alive[o.id] = sm
-                    speed = round(float(np.hypot(*sm)), 2)
+                    speed = round(float(np.hypot(sm[0], sm[1])), 2)
                     v_ms = [round(float(sm[0]), 2), round(float(sm[1]), 2)]
-                    if speed >= STATIONARY_MS:
+                    if speed >= STATIONARY_MS and sm[2] >= STATIONARY_BOX_FRAC * box_px[i]:
                         heading = round(float(np.degrees(np.arctan2(sm[0], sm[1]))) % 360, 1)
             tracks.append(TrackInfo(
                 id=o.id, box=[round(float(v), 1) for v in o.xyxy], score=round(o.score, 3), cls=o.cls,

@@ -268,3 +268,9 @@ tr:hover .lock:not(.on) { color: var(--muted); }
 .ground-map { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .ground-map canvas { display: block; cursor: crosshair; }
 .tracks .warn { display: inline-block; margin-left: 5px; padding: 0 4px; border-radius: 3px; font-size: 10px; font-weight: 700; color: #1a1205; background: #ffb020; }
+.tracks-scroll { height: 330px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.tracks { table-layout: fixed; }
+.tracks td { overflow: hidden; text-overflow: ellipsis; }
+.tracks thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-2); }
+.tracks td:last-child, .tracks th:last-child { padding-left: 2px; padding-right: 2px; text-overflow: clip; }
+.tracks td:first-child, .tracks th:first-child { padding-left: 4px; }
