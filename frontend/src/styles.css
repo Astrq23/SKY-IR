@@ -275,3 +275,14 @@ tr:hover .lock:not(.on) { color: var(--muted); }
 .tracks td:last-child, .tracks th:last-child { padding-left: 2px; padding-right: 2px; text-overflow: clip; }
 .tracks td:first-child, .tracks th:first-child { padding-left: 4px; }
 .chip-btn.small-btn { padding: 1px 7px; font-size: 10.5px; }
+.ground-map { position: relative; }
+.ground-map canvas { width: 100%; height: 100%; }
+.map-tools { display: flex; gap: 4px; justify-content: flex-end; margin-bottom: -4px; }
+.map-tools .chip-btn { padding: 1px 7px; font-size: 10.5px; }
+.map-tools .chip-btn:disabled { opacity: 0.4; cursor: default; }
+.map-badge { position: absolute; left: 8px; bottom: 8px; padding: 2px 6px; border-radius: 3px; font-size: 10.5px; color: var(--text-2); background: rgba(8, 11, 15, 0.8); pointer-events: none; }
+.map-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.55); }
+.map-expanded { position: fixed; z-index: 41; inset: 5vh 6vw; display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+.map-expanded .section { flex: 1; display: flex; flex-direction: column; min-height: 0; border: 0; }
+.map-expanded .section-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.map-expanded .ground-map { flex: 1; min-height: 0; }
