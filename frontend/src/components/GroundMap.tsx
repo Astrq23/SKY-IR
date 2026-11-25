@@ -16,6 +16,40 @@ interface Props {
 const HEIGHT = 230;
 const ARROW_S = 3; // velocity arrows show where the target will be in this many seconds
 const STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+const NEAREST = 3; // a locked target shows its distance to this many nearest targets
+
+type Placed = Track & { ground_xy: [number, number] };
+
+/** A ruler end: a fixed ground point, or snapped to a target so the distance follows it. */
+interface RulerPoint {
+  r: number;
+  f: number;
+  id?: number;
+}
+
+/** The `NEAREST` closest targets to `lt`, nearest first. */
+function nearestTo(lt: Placed, all: Placed[]) {
+  return all
+    .filter((t) => t.id !== lt.id)
+    .map((t) => ({ t, d: Math.hypot(t.ground_xy[0] - lt.ground_xy[0], t.ground_xy[1] - lt.ground_xy[1]) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, NEAREST);
+}
+
+const fmtDist = (m: number) => (m < 100 ? `${m.toFixed(1)} m` : `${m.toFixed(0)} m`);
+
+/** Distance label with a dark backdrop, centred on (x, y). */
+function distLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string) {
+  ctx.font = `600 10.5px "JetBrains Mono", ui-monospace, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const w = ctx.measureText(text).width + 8;
+  ctx.fillStyle = "rgba(8,11,15,0.85)";
+  ctx.fillRect(x - w / 2, y - 7.5, w, 15);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y + 0.5);
+  ctx.textAlign = "start";
+}
 const CARD_W = 180;
 
 /** Info card for a target (hovered on the map or in the Objects table). */
@@ -75,6 +109,8 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
   const viewRef = useRef(view);
   viewRef.current = view;
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [ruler, setRuler] = useState<RulerPoint[]>([]);
   const [northUp, setNorthUp] = useState(() => localStorage.getItem(NORTH_UP_KEY) === "1");
   useEffect(() => {
     try {
@@ -308,12 +344,57 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
         ctx.fillText(String(t.id), x + 6, y - 6);
       }
     }
-  }, [header, hoverId, width, height, view, mode, phi, yaw]);
 
-  const pick = (e: React.MouseEvent): Track | null => {
+    // locked target: dashed lines to its nearest neighbours (labelled when there is room; the
+    // summary line under the map lists them all)
+    for (const lt of placed.filter((t) => t.locked)) {
+      const [ax, ay] = P(...lt.ground_xy);
+      for (const { t, d } of nearestTo(lt, placed)) {
+        const [bx, by] = P(...t.ground_xy);
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = "rgba(255,77,77,0.55)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (Math.hypot(bx - ax, by - ay) > 56) distLabel(ctx, fmtDist(d), (ax + bx) / 2, (ay + by) / 2, "#ffb3b3");
+      }
+    }
+
+    // ruler: ends snapped to a target follow it
+    const ends = ruler.map((pt): [number, number] => {
+      const t = pt.id != null ? placed.find((x) => x.id === pt.id) : undefined;
+      return t ? t.ground_xy : [pt.r, pt.f];
+    });
+    if (ends.length) {
+      const scr = ends.map((e) => P(...e));
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (scr.length === 2) {
+        ctx.moveTo(...scr[0]);
+        ctx.lineTo(...scr[1]);
+      }
+      for (const [x, y] of scr) {
+        ctx.moveTo(x - 5, y);
+        ctx.lineTo(x + 5, y);
+        ctx.moveTo(x, y - 5);
+        ctx.lineTo(x, y + 5);
+      }
+      ctx.stroke();
+      if (ends.length === 2) {
+        const d = Math.hypot(ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]);
+        distLabel(ctx, fmtDist(d), (scr[0][0] + scr[1][0]) / 2, (scr[0][1] + scr[1][1]) / 2 - 10, "#ffffff");
+      }
+    }
+  }, [header, hoverId, width, height, view, mode, phi, yaw, ruler]);
+
+  const pick = (e: React.MouseEvent): Placed | null => {
     const r = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
-    let best: Track | null = null, bestD = 10;
+    let best: Placed | null = null, bestD = 10;
     for (const t of placed) {
       const [x, y] = toScreen(view, phi, width, height, ...t.ground_xy);
       const d = Math.hypot(x - mx, y - my);
@@ -342,12 +423,24 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
     const d = drag.current;
     drag.current = null;
     if (d && !d.moved) {
+      if (measuring) return measureAt(e);
       const t = pick(e);
       if (t) onToggleLock(t.id);
     }
   };
 
+  /** Click in measure mode: add a ruler end (snapped to a target when close to one). */
+  const measureAt = (e: React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const t = pick(e);
+    const [r, f] = t ? t.ground_xy : fromScreen(view, phi, width, height, e.clientX - rect.left, e.clientY - rect.top);
+    const pt: RulerPoint = { r, f, id: t?.id };
+    setRuler((rs) => (rs.length >= 2 ? [pt] : [...rs, pt]));
+  };
+
   const moving = placed.filter((t) => t.heading_deg != null).length;
+  const lockedPlaced = placed.find((t) => t.locked);
+  const nearest = lockedPlaced ? nearestTo(lockedPlaced, placed as Placed[]) : [];
   // info card next to the hovered target (also when hovered in the Objects table), flipped to the
   // left near the right edge; hidden while the target is outside the view
   const hovered = placed.find((t) => t.id === hoverId);
@@ -361,6 +454,8 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
   }
   const tools = (
     <span className="map-tools">
+      <button className={`chip-btn ${measuring ? "on" : ""}`} title="Measure: click two points or targets on the map"
+        onClick={() => { setMeasuring(!measuring); setRuler([]); }}>Measure</button>
       <button className={`chip-btn ${northUp ? "on" : ""}`} title="Switch between north up and camera direction up"
         onClick={() => setNorthUp(!northUp)}>{northUp ? "N ↑" : "Cam ↑"}</button>
       <button className={`chip-btn ${mode === "follow" ? "on" : ""}`} disabled={!locked} title="Keep the locked target centred"
@@ -376,10 +471,20 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
         <Section title="Ground map" right={<span className="muted">{placed.length} on ground · {moving} moving</span>}>
           {tools}
           <div ref={wrapRef} className="ground-map" style={expanded ? undefined : { height: HEIGHT }}>
-            <canvas ref={canvasRef} className={drag.current?.moved ? "panning" : undefined}
+            <canvas ref={canvasRef} className={drag.current?.moved ? "panning" : undefined} style={measuring ? { cursor: "crosshair" } : undefined}
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onDoubleClick={() => setMode("fit")}
               onMouseLeave={() => { drag.current = null; onHover(null); }} />
             {mode === "manual" && <div className="map-badge">Manual view · double-click to fit</div>}
+            {nearest.length > 0 && (
+              <div className="map-nearest mono" title="Distance from the locked target to its nearest targets">
+                #{lockedPlaced!.id} → {nearest.map(({ t, d }) => `#${t.id} ${fmtDist(d).replace(" ", "")}`).join(" · ")}
+              </div>
+            )}
+            {measuring && (
+              <div className="map-hint">
+                {ruler.length === 0 ? "Click the first point or target" : ruler.length === 1 ? "Click the second point" : "Click to start a new measurement"}
+              </div>
+            )}
             {card && (
               <div className="map-card" style={{ left: card.left, top: card.top, width: CARD_W }}>
                 <div className="map-card-title">
@@ -404,4 +509,10 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
 function toScreen(v: View, phi: number, width: number, height: number, r: number, f: number): [number, number] {
   const [x, y] = rotate(phi, r, f);
   return [width / 2 + (x - v.cx) * v.k, height / 2 - (y - v.cy) * v.k];
+}
+
+/** Inverse of toScreen: canvas css px -> camera-relative ground (right, forward) metres. */
+function fromScreen(v: View, phi: number, width: number, height: number, sx: number, sy: number): [number, number] {
+  const x = v.cx + (sx - width / 2) / v.k, y = v.cy - (sy - height / 2) / v.k;
+  return rotate(-phi, x, y);
 }
