@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FrameHeader, Track } from "../api";
-import { compass } from "../compass";
+import { compass, toBearing } from "../compass";
 import { classColor, LOCK_COLOR } from "../theme";
 import { Section } from "./ui";
 
@@ -16,6 +16,22 @@ interface Props {
 const HEIGHT = 230;
 const ARROW_S = 3; // velocity arrows show where the target will be in this many seconds
 const STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+const CARD_W = 180;
+
+/** Info card for a target (hovered on the map or in the Objects table). */
+function cardState(t: Track): string {
+  return t.locked ? "locked" : t.coasting ? "predicted" : `conf ${t.score.toFixed(2)}`;
+}
+
+function cardLines(t: Track, yaw: number): string[] {
+  const motion = t.speed_ms == null ? "speed —"
+    : t.heading_deg == null ? "stationary"
+    : `${(t.speed_ms * 3.6).toFixed(1)} km/h ${compass(toBearing(t.heading_deg, yaw))}`;
+  return [
+    `${t.ground_m == null ? "range —" : `${t.ground_m.toFixed(0)} m away`} · ${t.size_m == null ? "size —" : `≈ ${t.size_m.toFixed(1)} m`}${t.size_ok ? "" : " (!)"}`,
+    motion,
+  ];
+}
 
 /** Largest "nice" length (m) that is at most `max`. */
 const niceAtMost = (max: number) => [...STEPS].reverse().find((s) => s <= max) ?? STEPS[0];
@@ -332,6 +348,17 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
   };
 
   const moving = placed.filter((t) => t.heading_deg != null).length;
+  // info card next to the hovered target (also when hovered in the Objects table), flipped to the
+  // left near the right edge; hidden while the target is outside the view
+  const hovered = placed.find((t) => t.id === hoverId);
+  let card: { left: number; top: number; t: typeof placed[number] } | null = null;
+  if (hovered && view.k) {
+    const [x, y] = toScreen(view, phi, width, height, ...hovered.ground_xy);
+    if (x >= 0 && x <= width && y >= 0 && y <= height) {
+      const left = x + 12 + CARD_W > width ? x - 12 - CARD_W : x + 12;
+      card = { left: Math.max(4, left), top: Math.min(Math.max(4, y - 22), height - 60), t: hovered };
+    }
+  }
   const tools = (
     <span className="map-tools">
       <button className={`chip-btn ${northUp ? "on" : ""}`} title="Switch between north up and camera direction up"
@@ -353,6 +380,15 @@ export function GroundMap({ yaw, header, hoverId, onHover, onToggleLock }: Props
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onDoubleClick={() => setMode("fit")}
               onMouseLeave={() => { drag.current = null; onHover(null); }} />
             {mode === "manual" && <div className="map-badge">Manual view · double-click to fit</div>}
+            {card && (
+              <div className="map-card" style={{ left: card.left, top: card.top, width: CARD_W }}>
+                <div className="map-card-title">
+                  <span className="dot" style={{ background: card.t.locked ? LOCK_COLOR : classColor(card.t.cls) }} />
+                  #{card.t.id} {card.t.name} <span className="muted">· {cardState(card.t)}</span>
+                </div>
+                {cardLines(card.t, yaw).map((l) => <div key={l} className="mono">{l}</div>)}
+              </div>
+            )}
           </div>
           <p className="muted small">
             {northUp ? <>North up · camera facing {compass(yaw)}. </> : <>Camera direction up (facing {compass(yaw)}). </>}
